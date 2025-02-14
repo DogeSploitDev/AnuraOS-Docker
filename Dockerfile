@@ -21,7 +21,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     uuid-runtime \
     jq \
     make \
-    docker.io \
     lib32gcc-s1 \
     lib32stdc++6 \
     git \
@@ -32,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     pkg-config \
     zlib1g-dev \
+    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22.x and npm
@@ -56,23 +56,21 @@ RUN wget https://github.com/WebAssembly/binaryen/releases/download/version_113/b
     mv binaryen-version_113/bin/* /usr/local/bin/ && \
     rm -rf binaryen-version_113*
 
-# Set up Docker permissions
-RUN if ! getent group docker > /dev/null; then groupadd docker; fi && \
-    usermod -aG docker root
-
 # Clone the AnuraOS repository
 RUN git clone --recursive https://github.com/MercuryWorkshop/anuraOS /anuraOS
 
 # Set working directory
 WORKDIR /anuraOS
 
-# Install Python dependencies (if required by the project)
-RUN pip3 install -r requirements.txt || true
+RUN git submodule update --init
 
-# Start the Docker daemon and build the Alpine rootfs
-RUN dockerd & \
-    sleep 5 && \
-    make rootfs-alpine
+# Build the Alpine rootfs inside the container
+ARG BUILD_ROOTFS=false
+RUN if [ "$BUILD_ROOTFS" = "true" ]; then \
+    apt-get update && apt-get install -y --no-install-recommends docker.io && \
+    rm -rf /var/lib/apt/lists/*; \
+    /usr/sbin/service docker start && sleep 10 && make rootfs-alpine; \
+    fi
 
 # Build the project
 RUN make all
@@ -80,5 +78,5 @@ RUN make all
 # Expose the server port
 EXPOSE 8000
 
-# Start the Docker daemon and the server
-CMD ["sh", "-c", "dockerd & sleep 5 && make server"]
+# Start the server
+CMD ["make", "server"]
