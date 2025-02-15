@@ -1,82 +1,59 @@
-# Use an official Debian base image
-FROM debian:bullseye
+# Use an official Linux base image
+FROM ubuntu:22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
-ENV JAVA_VERSION=17
-ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Update and install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-utils \
+# Install dependencies
+RUN apt-get update && apt-get install -y \
     wget \
     curl \
-    gnupg \
-    software-properties-common \
-    inotify-tools \
     build-essential \
-    gcc \
     gcc-multilib \
     clang \
     uuid-runtime \
     jq \
+    openjdk-11-jdk \
+    inotify-tools \
+    npm \
     make \
+    docker.io \
     lib32gcc-s1 \
     lib32stdc++6 \
-    git \
-    python3 \
-    python3-pip \
-    nasm \
-    qemu-system-x86 \
-    libssl-dev \
-    pkg-config \
-    zlib1g-dev \
-    systemd \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean
 
-# Install Node.js 22.x and npm
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+# Remove conflicting libnode-dev package and install Node.js 22
+RUN apt-get remove -y libnode-dev && \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     npm install -g npm@latest
 
-# Install Java (17)
-RUN apt-get update && apt-get install -y openjdk-${JAVA_VERSION}-jdk && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Rust and required toolchains
+# Install Rust using rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    . "$HOME/.cargo/env" && \
+    rustup target add wasm32-unknown-unknown && \
+    rustup target add i686-unknown-linux-gnu && \
     rustup install nightly && \
     rustup default nightly && \
     rustup target add wasm32-unknown-unknown && \
     rustup target add i686-unknown-linux-gnu
 
-# Install wasm-opt
-RUN wget https://github.com/WebAssembly/binaryen/releases/download/version_113/binaryen-version_113-x86_64-linux.tar.gz && \
-    tar -xvzf binaryen-version_113-x86_64-linux.tar.gz && \
-    mv binaryen-version_113/bin/* /usr/local/bin/ && \
-    rm -rf binaryen-version_113*
+# Add Rust environment to PATH for all subsequent commands
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Add the current user to the Docker group (only if it doesn't already exist)
+RUN getent group docker || groupadd docker && usermod -aG docker root
 
 # Clone the AnuraOS repository
-RUN git clone --recursive https://github.com/MercuryWorkshop/anuraOS /anuraOS
-
-# Set working directory
+RUN git clone -b v1.2 --recursive https://github.com/MercuryWorkshop/anuraOS.git /anuraOS
+# Set the working directory
 WORKDIR /anuraOS
 
-RUN git submodule update --init
-
-# Build the Alpine rootfs inside the container
-ARG BUILD_ROOTFS=false
-RUN if [ "$BUILD_ROOTFS" = "true" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends docker.io && \
-    rm -rf /var/lib/apt/lists/*; \
-    /usr/sbin/service docker start && sleep 10 && make rootfs-alpine; \
-    fi
-
 # Build the project
-RUN make all
+RUN make all 
 
-# Expose the server port
+# Expose the port for the server
 EXPOSE 8000
 
-# Start the server
-CMD ["make", "server"]
+# Start the Docker daemon and open a shell for manual input
+CMD /bin/bash
